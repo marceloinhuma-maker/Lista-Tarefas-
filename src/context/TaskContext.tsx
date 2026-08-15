@@ -10,7 +10,8 @@ import {
   ActiveTab,
   TaskStats
 } from '../services/types';
-import { LocalStorageService } from '../services/storageService';
+import { SupabaseService } from '../services/supabaseService';
+import { INITIAL_CATEGORIES, INITIAL_TASKS } from '../utils/initialData';
 import { isToday, isPastDate } from '../utils/dateUtils';
 
 interface ToastMessage {
@@ -118,26 +119,34 @@ export const TaskProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // Toast state
   const [toast, setToast] = useState<ToastMessage | null>(null);
 
-  // Carregar dados iniciais do LocalStorage
+  // Carregar dados do Supabase (com seed automático na primeira execução)
   useEffect(() => {
     async function loadData() {
       try {
         setIsLoading(true);
-        const [loadedTasks, loadedCategories, loadedUser] = await Promise.all([
-          LocalStorageService.getTasks(),
-          LocalStorageService.getCategories(),
-          LocalStorageService.getUserProfile()
-        ]);
+
+        // Carregar categorias; se vazio, semear dados de demonstração
+        let loadedCategories = await SupabaseService.getCategories();
+        let loadedTasks = await SupabaseService.getTasks();
+
+        if (loadedCategories.length === 0) {
+          const seeded = await seedDemoData();
+          loadedTasks = seeded.tasks;
+          loadedCategories = seeded.categories;
+        }
+
+        const loadedUser = await SupabaseService.getUserProfile();
         setTasks(loadedTasks);
         setCategories(loadedCategories);
         setUserProfile(loadedUser);
       } catch (error) {
-        console.error('Falha ao carregar dados:', error);
+        console.error('Falha ao carregar dados do Supabase:', error);
       } finally {
         setIsLoading(false);
       }
     }
     loadData();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Toast Helper
@@ -158,6 +167,48 @@ export const TaskProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const hideToast = () => {
     setToast(null);
+  };
+
+  // ── Função de seed de demonstração ──────────────────────────────────────
+  const seedDemoData = async () => {
+    // Criar categorias iniciais com todos os campos de cor
+    for (const cat of INITIAL_CATEGORIES) {
+      await SupabaseService.createCategory({
+        name: cat.name,
+        color: cat.color,
+        icon: cat.icon,
+        bgLight: cat.bgLight,
+        textColor: cat.textColor,
+        borderColor: cat.borderColor,
+        isCustom: false
+      });
+    }
+    const createdCats = await SupabaseService.getCategories();
+
+    // Mapear nomes das categorias iniciais para os IDs reais do banco
+    const catMap: Record<string, string> = {
+      trabalho: createdCats.find((c) => c.name === 'Trabalho')?.id ?? '',
+      pessoal: createdCats.find((c) => c.name === 'Pessoal')?.id ?? '',
+      estudos: createdCats.find((c) => c.name === 'Estudos')?.id ?? '',
+      financas: createdCats.find((c) => c.name === 'Finanças')?.id ?? '',
+      saude: createdCats.find((c) => c.name === 'Saúde')?.id ?? ''
+    };
+
+    for (const task of INITIAL_TASKS) {
+      await SupabaseService.createTask({
+        title: task.title,
+        description: task.description,
+        categoryId: catMap[task.categoryId] ?? createdCats[0]?.id ?? '',
+        priority: task.priority,
+        dueDate: task.dueDate,
+        dueTime: task.dueTime
+      });
+    }
+
+    return {
+      tasks: await SupabaseService.getTasks(),
+      categories: createdCats
+    };
   };
 
   // Estatísticas calculadas
@@ -233,25 +284,24 @@ export const TaskProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     dueDate: string;
     dueTime?: string;
   }) => {
-    const newTask = await LocalStorageService.createTask(data);
+    const newTask = await SupabaseService.createTask(data);
     setTasks((prev) => [newTask, ...prev]);
     closeFormModal();
     showToast('Tarefa criada com sucesso!', 'success');
   };
 
   const updateTask = async (task: Task) => {
-    const updated = await LocalStorageService.updateTask(task);
+    const updated = await SupabaseService.updateTask(task);
     setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
     closeFormModal();
     showToast('Tarefa atualizada com sucesso!', 'success');
   };
 
   const toggleTask = async (id: string) => {
-    const updated = await LocalStorageService.toggleTask(id);
+    const updated = await SupabaseService.toggleTask(id);
     setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
 
     if (updated.completed) {
-      // Disparar confetes se todas as tarefas forem concluídas ou na conclusão
       confetti({
         particleCount: 40,
         spread: 60,
@@ -266,42 +316,47 @@ export const TaskProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const taskToRemove = tasks.find((t) => t.id === id);
     if (!taskToRemove) return;
 
-    await LocalStorageService.deleteTask(id);
+    await SupabaseService.deleteTask(id);
     setTasks((prev) => prev.filter((t) => t.id !== id));
     closeDeleteModal();
 
     showToast('Tarefa excluída', 'info', 'Desfazer', async () => {
-      await LocalStorageService.restoreTask(taskToRemove);
+      await SupabaseService.restoreTask(taskToRemove);
       setTasks((prev) => [taskToRemove, ...prev]);
       showToast('Tarefa restaurada!', 'success');
     });
   };
 
   const createCategory = async (data: { name: string; color: string; icon?: string }) => {
-    const newCat = await LocalStorageService.createCategory(data);
+    const newCat = await SupabaseService.createCategory(data);
     setCategories((prev) => [...prev, newCat]);
     closeCategoryModal();
     showToast('Nova categoria criada!', 'success');
   };
 
   const updateProfile = async (profile: UserProfile) => {
-    const updated = await LocalStorageService.updateUserProfile(profile);
+    const updated = await SupabaseService.updateUserProfile(profile);
     setUserProfile(updated);
     showToast('Perfil atualizado com sucesso!', 'success');
   };
 
   const resetToDemo = async () => {
-    await LocalStorageService.resetToDemoData();
-    const [loadedTasks, loadedCategories, loadedUser] = await Promise.all([
-      LocalStorageService.getTasks(),
-      LocalStorageService.getCategories(),
-      LocalStorageService.getUserProfile()
-    ]);
-    setTasks(loadedTasks);
-    setCategories(loadedCategories);
-    setUserProfile(loadedUser);
-    closeLogoutModal();
-    showToast('Dados restaurados para a demonstração!', 'info');
+    try {
+      setIsLoading(true);
+      await SupabaseService.clearUserData();
+      const seeded = await seedDemoData();
+      const loadedUser = await SupabaseService.getUserProfile();
+      setTasks(seeded.tasks);
+      setCategories(seeded.categories);
+      setUserProfile(loadedUser);
+      closeLogoutModal();
+      showToast('Dados restaurados para a demonstração!', 'info');
+    } catch (error) {
+      console.error('Erro ao restaurar dados de demonstração:', error);
+      showToast('Erro ao restaurar dados.', 'error');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (

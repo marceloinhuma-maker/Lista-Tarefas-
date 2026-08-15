@@ -8,6 +8,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { useTasks } from '../../context/TaskContext';
+import { useAuth } from '../../context/AuthContext';
 import { ActiveTab } from '../../services/types';
 import { Button } from '../common/Button';
 
@@ -20,6 +21,11 @@ export const Navbar: React.FC = () => {
     userProfile,
     stats
   } = useTasks();
+  const { signOut, user } = useAuth();
+
+  const handleLogout = async () => {
+    await signOut();
+  };
 
   const navItems: { id: ActiveTab; label: string; icon: React.ReactNode; badge?: number }[] = [
     {
@@ -117,23 +123,28 @@ export const Navbar: React.FC = () => {
               <button
                 onClick={openLogoutModal}
                 className="flex items-center gap-2 p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl hover:bg-slate-100 transition-colors border border-transparent hover:border-slate-200 cursor-pointer"
-                title="Perfil e Sessão"
+                title={user?.email ?? userProfile.name}
               >
                 <img
                   src={userProfile.avatarUrl}
                   alt={userProfile.name}
                   className="w-8 h-8 rounded-full object-cover ring-2 ring-indigo-500/20"
                 />
-                <span className="text-xs font-semibold text-slate-700 hidden lg:inline max-w-[120px] truncate">
-                  {userProfile.name.split(' ')[0]}
-                </span>
+                <div className="hidden lg:flex flex-col items-start">
+                  <span className="text-xs font-semibold text-slate-700 max-w-[120px] truncate">
+                    {userProfile.name.split(' ')[0]}
+                  </span>
+                  <span className="text-[10px] text-slate-400 max-w-[120px] truncate">
+                    {user?.email ?? ''}
+                  </span>
+                </div>
               </button>
 
               <button
-                onClick={openLogoutModal}
+                onClick={handleLogout}
                 className="p-2 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer border border-transparent hover:border-rose-100"
-                title="Sair"
-                aria-label="Sair"
+                title="Sair da conta"
+                aria-label="Sair da conta"
               >
                 <LogOut className="w-4 h-4" />
               </button>
